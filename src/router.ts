@@ -1,47 +1,49 @@
 import Router from "@koa/router";
 import { apiRouter } from "./api.ts";
+import { cdnRouter } from "./cdn.ts";
 import { ClientLoader } from "./client-loader.ts";
 
 export const router = new Router();
 
 const DISCORD_ROUTES = [
-  "/app",
-  "/channels",
-  "/oauth2",
-  "/message-requests",
-  "/store",
-  "/shop",
-  "/quest-home",
-  "/login",
-  "/register",
-  "/settings",
-  "/billing",
-  "/discovery",
-  "/invite",
-  "/template",
-  "/gifts",
-  "/activities",
-  "/library",
-  "/connections",
-  "/application-directory",
-  "/quests",
-  "/voice",
-  "/activity",
-  "/discovery",
-  "/discovery/quests",
-  "/discovery/servers",
-  "/discovery/applications",
-  "/member-verification",
-  "/member-verification-for-hub",
-  "/popout",
-  "/events",
+    "/app",
+    "/channels",
+    "/oauth2",
+    "/message-requests",
+    "/store",
+    "/shop",
+    "/quest-home",
+    "/login",
+    "/register",
+    "/settings",
+    "/billing",
+    "/discovery",
+    "/invite",
+    "/template",
+    "/gifts",
+    "/activities",
+    "/library",
+    "/connections",
+    "/application-directory",
+    "/quests",
+    "/voice",
+    "/activity",
+    "/discovery",
+    "/discovery/quests",
+    "/discovery/servers",
+    "/discovery/applications",
+    "/member-verification",
+    "/member-verification-for-hub",
+    "/popout",
+    "/events"
 ];
 
 router.use(apiRouter.routes(), apiRouter.allowedMethods());
+router.use(cdnRouter.routes(), cdnRouter.allowedMethods());
 
-router.get("/", async (ctx) => {
-  ctx.type = "html";
-  ctx.body = `
+router.get("/", async ctx => {
+    ctx.type = "html";
+    ctx.body = `
     <!DOCTYPE html>
     <html>
     <head>
@@ -102,13 +104,13 @@ router.get("/", async (ctx) => {
 });
 
 const handleDiscordRoute = (ctx: any) => {
-  ctx.type = "html";
-  ctx.body = ClientLoader.getHtml();
+    ctx.type = "html";
+    ctx.body = ClientLoader.getHtml();
 };
 
 for (const route of DISCORD_ROUTES) {
-  // Exact match
-  router.get(route, handleDiscordRoute);
-  // Sub-paths using path-to-regexp v8 syntax
-  router.get(`${route}/*parts`, handleDiscordRoute);
+    // Exact match
+    router.get(route, handleDiscordRoute);
+    // Sub-paths using path-to-regexp v8 syntax
+    router.get(`${route}/*parts`, handleDiscordRoute);
 }

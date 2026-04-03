@@ -16,6 +16,7 @@ function buildFetchOptions(
   override: Partial<RequestInit> = {},
 ): RequestInit & { duplex?: string } {
   const overrideHeaders = "headers" in override ? override.headers : {};
+  const hasOverrideBody = "body" in override;
 
   const options: RequestInit & { duplex?: string } = {
     method: ctx.method,
@@ -24,12 +25,11 @@ function buildFetchOptions(
       "Content-Type": ctx.get("Content-Type"),
       Authorization: ctx.get("Authorization"),
       "User-Agent": ctx.get("User-Agent"),
-      Origin: "https://web.fluxer.app",
       ...overrideHeaders,
     },
   };
 
-  if (!["GET", "HEAD"].includes(options.method ?? "")) {
+  if (!["GET", "HEAD"].includes(options.method ?? "") && !hasOverrideBody) {
     options.body = ctx.req as any;
     options.duplex = "half";
   }
@@ -37,16 +37,35 @@ function buildFetchOptions(
   return options;
 }
 
-/**
- * Proxy a request to Fluxer, streaming the response as-is.
- */
-export async function proxyToFluxer(ctx: Koa.Context, subPath: string) {
-  const targetUrl = `${FLUXER_API_BASE}/${subPath}${ctx.search}`;
+function withFluxerOrigin(
+  overrideFetchOptions: Partial<RequestInit> = {},
+): Partial<RequestInit> {
+  return {
+    ...overrideFetchOptions,
+    headers: {
+      Origin: "https://web.fluxer.app",
+      ...("headers" in overrideFetchOptions
+        ? overrideFetchOptions.headers
+        : {}),
+    },
+  };
+}
 
+/**
+ * Proxy a request to any upstream URL, streaming the response as-is.
+ */
+export async function proxyToUrl(
+  ctx: Koa.Context,
+  targetUrl: string,
+  overrideFetchOptions: Partial<RequestInit> = {},
+) {
   console.log(`[Proxy] ${ctx.method} ${ctx.path} -> ${targetUrl}`);
 
   try {
-    const res = await fetch(targetUrl, buildFetchOptions(ctx));
+    const res = await fetch(
+      targetUrl,
+      buildFetchOptions(ctx, overrideFetchOptions),
+    );
 
     ctx.status = res.status;
     setHeaders(ctx, res.headers);
@@ -63,10 +82,18 @@ export async function proxyToFluxer(ctx: Koa.Context, subPath: string) {
       ctx.body = null;
     }
   } catch (err) {
-    console.error(`API Proxy error for ${targetUrl}:`, err);
+    console.error(`Proxy error for ${targetUrl}:`, err);
     ctx.status = 502;
-    ctx.body = { error: "Bad Gateway", message: "Failed to reach Fluxer API" };
+    ctx.body = { error: "Bad Gateway", message: "Failed to reach upstream" };
   }
+}
+
+/**
+ * Proxy a request to Fluxer, streaming the response as-is.
+ */
+export async function proxyToFluxer(ctx: Koa.Context, subPath: string) {
+  const targetUrl = `${FLUXER_API_BASE}/${subPath}${ctx.search}`;
+  await proxyToUrl(ctx, targetUrl, withFluxerOrigin());
 }
 
 function stripAPIVersion(url: string) {
@@ -88,7 +115,7 @@ export async function proxyToFluxerJSON<T = any>(
 
   const res = await fetch(
     targetUrl,
-    buildFetchOptions(ctx, overrideFetchOptions),
+    buildFetchOptions(ctx, withFluxerOrigin(overrideFetchOptions)),
   );
 
   let body = undefined;

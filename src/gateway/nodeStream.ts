@@ -1,16 +1,11 @@
+import assert from "node:assert";
 import * as stream from "node:stream";
 import { isAnyArrayBuffer, isArrayBufferView } from "node:util/types";
 import * as zlib from "node:zlib";
 
-const assert: (value: unknown, message?: string | Error) => asserts value = (
-  await import("node:assert")
-).default;
-
 // THIS IS VERY NODE INTERNALS SPECIFIC
 
-const symbols = Object.getOwnPropertySymbols(
-  (await import("node:zlib")).default.createDeflate(),
-);
+const symbols = Object.getOwnPropertySymbols(zlib.createDeflate());
 
 const kError: unique symbol = symbols.find(
   (s) => s.toString() === "Symbol(kError)",

@@ -1,5 +1,5 @@
 import * as zlib from "zlib";
-import * as erlpack from "erlpack";
+import { createRequire } from "node:module";
 import { zlibBufferSync } from "./nodeStream.ts";
 
 export type GatewayCompression = "none" | "zlib-stream" | "zstd-stream";
@@ -10,12 +10,44 @@ export interface GatewayCodec {
   decode<T = any>(payload: string | Buffer): T;
 }
 
+const require = createRequire(__filename);
+let warnedAboutErlpack = false;
+
+function getErlpack() {
+  try {
+    return require("erlpack") as {
+      pack(payload: unknown): ArrayBufferView;
+      unpack(payload: Buffer): unknown;
+    };
+  } catch (error) {
+    if (!warnedAboutErlpack) {
+      warnedAboutErlpack = true;
+      console.warn(
+        "[Gateway] erlpack unavailable, falling back to JSON codec:",
+        error,
+      );
+    }
+
+    return null;
+  }
+}
+
 export class ETFGatewayCodec implements GatewayCodec {
   public encode<T = any>(payload: T): string | Buffer {
+    const erlpack = getErlpack();
+    if (!erlpack) {
+      return JSON.stringify(payload);
+    }
+
     return Buffer.from(erlpack.pack(payload).buffer);
   }
 
   public decode<T = any>(payload: string | Buffer): T {
+    const erlpack = getErlpack();
+    if (!erlpack) {
+      return JSON.parse(payload.toString()) as T;
+    }
+
     return erlpack.unpack(Buffer.from(payload)) as T;
   }
 }

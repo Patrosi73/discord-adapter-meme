@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { Eta } from "eta";
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { LOCAL_HOST, LOCAL_WEBSOCKET_HOST } from "./constants.ts";
@@ -7,46 +8,73 @@ import { LOCAL_HOST, LOCAL_WEBSOCKET_HOST } from "./constants.ts";
 export const BASE_URL = "https://discord.com";
 
 export class ClientLoader {
-  private static cachedHtml: string | null = null;
+    private static cachedHtml: string | null = null;
 
-  static async init() {
-    const filePath = path.join(process.cwd(), "stuff", "index.html");
-    const rawHtml = await fs.readFile(filePath, "utf-8");
-    const $ = cheerio.load(rawHtml);
+    static async init() {
+        const stuffDirCandidates = [process.env.ADAPTER_STUFF_DIR, path.join(process.cwd(), "stuff")].filter(
+            (candidate): candidate is string => Boolean(candidate)
+        );
 
-    // Extract scripts and links to inject
-    const preloads = $('link[rel="preload"]')
-      .map((_, el) => $.html(el))
-      .get()
-      .join("\n    ");
-    const styles = $('link[rel="stylesheet"]')
-      .map((_, el) => $.html(el))
-      .get()
-      .join("\n    ");
-    const scripts = $("script[defer]")
-      .map((_, el) => $.html(el))
-      .get()
-      .join("\n    ");
-    const favicons = $('link[rel="icon"]')
-      .map((_, el) => $.html(el))
-      .get()
-      .join("\n    ");
+        const filePath =
+            stuffDirCandidates.map(dir => path.join(dir, "index.html")).find(candidate => existsSync(candidate)) ||
+            path.join(process.cwd(), "stuff", "index.html");
 
-    const fastConnectInline =
-      $("script")
-        .filter((_, el) => {
-          const content = $(el).text();
+        let rawHtml: string;
+
+        try {
+            console.log("[ClientLoader] Fetching Discord app HTML...");
+            const res = await fetch(`${BASE_URL}/app`, {
+                headers: {
+                    "User-Agent":
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+            });
+
+            if (!res.ok) {
+                throw new Error(`Failed to fetch Discord app HTML (${res.status} ${res.statusText})`);
+            }
+
+            rawHtml = await res.text();
+        } catch (error) {
+            console.warn("[ClientLoader] Failed to fetch Discord app HTML, using local fallback...", error);
+            rawHtml = await fs.readFile(filePath, "utf-8");
+        }
+
+        const $ = cheerio.load(rawHtml);
+
+        // Extract scripts and links to inject
+        const preloads = $('link[rel="preload"]')
+            .map((_, el) => $.html(el))
+            .get()
+            .join("\n    ");
+        const styles = $('link[rel="stylesheet"]')
+            .map((_, el) => $.html(el))
+            .get()
+            .join("\n    ");
+        const scripts = $("script[defer]")
+            .map((_, el) => $.html(el))
+            .get()
+            .join("\n    ");
+        const favicons = $('link[rel="icon"]')
+            .map((_, el) => $.html(el))
+            .get()
+            .join("\n    ");
+
+        const fastConnectInline =
+            $("script")
+                .filter((_, el) => {
+                    const content = $(el).text();
           return (
             content.includes("window.WebSocket") &&
             content.includes("FAST CONNECT")
           );
-        })
-        .first()
-        .html() || "";
+                })
+                .first()
+                .html() || "";
 
-    const eta = new Eta();
+        const eta = new Eta();
 
-    const template = `
+        const template = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -89,61 +117,60 @@ export class ClientLoader {
 </html>
         `.trim();
 
-    const defaultEnv = {
-      NODE_ENV: "production",
-      BUILT_AT: "1772180331325",
-      HTML_TIMESTAMP: Date.now(),
-      BUILD_NUMBER: "503231",
-      PROJECT_ENV: "production",
-      RELEASE_CHANNEL: "stable",
-      VERSION_HASH: "dev",
-      PRIMARY_DOMAIN: "fluxer.app",
-      PUBLIC_PATH: "/assets/",
-      LOCATION: "history",
-      API_VERSION: 9,
-      API_PROTOCOL: "http:",
-      API_ENDPOINT: `//${LOCAL_HOST}/api`,
-      GATEWAY_ENDPOINT: `ws://${LOCAL_WEBSOCKET_HOST}`,
-      STATIC_ENDPOINT: "",
-      ASSET_ENDPOINT: `//${LOCAL_HOST}`,
-      MEDIA_PROXY_ENDPOINT: "//media.discordapp.net",
-      IMAGE_PROXY_ENDPOINTS:
-        "//images-ext-1.discordapp.net,//images-ext-2.discordapp.net",
-      CDN_HOST: "fluxerusercontent.com",
-      DEVELOPERS_ENDPOINT: `//${LOCAL_HOST}`,
-      MARKETING_ENDPOINT: `//${LOCAL_HOST}`,
-      WEBAPP_ENDPOINT: `//${LOCAL_HOST}`,
-      WIDGET_ENDPOINT: `//${LOCAL_HOST}/widget`,
-      ADS_MANAGER_ENDPOINT: "//ads.discord.com",
-      NETWORKING_ENDPOINT: "//router.discordapp.net",
-      //   REMOTE_AUTH_ENDPOINT: "wss://remote-auth-gateway.discord.gg",
-      RTC_LATENCY_ENDPOINT: `//${LOCAL_HOST}/api/_adapter/rtc-latency`,
-      INVITE_HOST: "fluxer.gg",
-      GUILD_TEMPLATE_HOST: "fluxer.new",
-      GIFT_CODE_HOST: "fluxer.gift",
-      ACTIVITY_APPLICATION_HOST: "discordsays.com",
-      //   MIGRATION_SOURCE_ORIGIN: "https://discordapp.com",
-      //   MIGRATION_DESTINATION_ORIGIN: "https://discord.com",
-      //   STRIPE_KEY: "pk_live_CUQtlpQUF0vufWpnpUmQvcdi",
-      //   ADYEN_KEY: "live_E3OQ33V6GVGTXOVQZEAFQJ6DJIDVG6SY",
-      //   BRAINTREE_KEY: "production_ktzp8hfp_49pp2rp4phym7387",
-      WEBAUTHN_ORIGIN: "fluxer.app",
-    };
+        const defaultEnv = {
+            NODE_ENV: "production",
+            BUILT_AT: "1772180331325",
+            HTML_TIMESTAMP: Date.now(),
+            BUILD_NUMBER: "503231",
+            PROJECT_ENV: "production",
+            RELEASE_CHANNEL: "stable",
+            VERSION_HASH: "dev",
+            PRIMARY_DOMAIN: "fluxer.app",
+            PUBLIC_PATH: "/assets/",
+            LOCATION: "history",
+            API_VERSION: 9,
+            API_PROTOCOL: "http:",
+            API_ENDPOINT: `//${LOCAL_HOST}/api`,
+            GATEWAY_ENDPOINT: `ws://${LOCAL_WEBSOCKET_HOST}`,
+            STATIC_ENDPOINT: "",
+            ASSET_ENDPOINT: `//${LOCAL_HOST}`,
+            MEDIA_PROXY_ENDPOINT: "//media.discordapp.net",
+            IMAGE_PROXY_ENDPOINTS: "//images-ext-1.discordapp.net,//images-ext-2.discordapp.net",
+            CDN_HOST: `//${LOCAL_HOST}`,
+            DEVELOPERS_ENDPOINT: `//${LOCAL_HOST}`,
+            MARKETING_ENDPOINT: `//${LOCAL_HOST}`,
+            WEBAPP_ENDPOINT: `//${LOCAL_HOST}`,
+            WIDGET_ENDPOINT: `//${LOCAL_HOST}/widget`,
+            ADS_MANAGER_ENDPOINT: "//ads.discord.com",
+            NETWORKING_ENDPOINT: "//router.discordapp.net",
+            //   REMOTE_AUTH_ENDPOINT: "wss://remote-auth-gateway.discord.gg",
+            RTC_LATENCY_ENDPOINT: `//${LOCAL_HOST}/api/_adapter/rtc-latency`,
+            INVITE_HOST: "fluxer.gg",
+            GUILD_TEMPLATE_HOST: "fluxer.new",
+            GIFT_CODE_HOST: "fluxer.gift",
+            ACTIVITY_APPLICATION_HOST: "discordsays.com",
+            //   MIGRATION_SOURCE_ORIGIN: "https://discordapp.com",
+            //   MIGRATION_DESTINATION_ORIGIN: "https://discord.com",
+            //   STRIPE_KEY: "pk_live_CUQtlpQUF0vufWpnpUmQvcdi",
+            //   ADYEN_KEY: "live_E3OQ33V6GVGTXOVQZEAFQJ6DJIDVG6SY",
+            //   BRAINTREE_KEY: "production_ktzp8hfp_49pp2rp4phym7387",
+            WEBAUTHN_ORIGIN: "fluxer.app"
+        };
 
-    this.cachedHtml = eta.renderString(template, {
-      GLOBAL_ENV: JSON.stringify(defaultEnv),
-      preloads,
-      favicons,
-      fastConnectInline,
-      scripts,
-      styles,
-    });
-  }
-
-  static getHtml(): string {
-    if (!this.cachedHtml) {
-      throw new Error("ClientLoader not initialized. Call init() first.");
+        this.cachedHtml = eta.renderString(template, {
+            GLOBAL_ENV: JSON.stringify(defaultEnv),
+            preloads,
+            favicons,
+            fastConnectInline,
+            scripts,
+            styles
+        });
     }
-    return this.cachedHtml;
-  }
+
+    static getHtml(): string {
+        if (!this.cachedHtml) {
+            throw new Error("ClientLoader not initialized. Call init() first.");
+        }
+        return this.cachedHtml;
+    }
 }
