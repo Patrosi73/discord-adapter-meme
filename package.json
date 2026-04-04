@@ -18,7 +18,7 @@
     "bufferutil": "^4.1.0",
     "cheerio": "^1.2.0",
     "discord-protos": "1.2.102",
-    "erlpack": "^0.1.4",
+    "erlpack": "github:pypy-vrc/erlpack",
     "eta": "^4.5.1",
     "koa": "^3.1.2",
     "selfsigned": "^5.5.0",
