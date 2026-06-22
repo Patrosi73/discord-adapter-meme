@@ -100,6 +100,19 @@ function stripAPIVersion(url: string) {
   return url.replace(/^\/api\/v\d+/, "");
 }
 
+export function buildFluxerPathWithQuery(
+  ctx: Koa.Context,
+  queryOverrides: Record<string, string>,
+): string {
+  const url = new URL(stripAPIVersion(ctx.url), "http://localhost");
+
+  for (const [key, value] of Object.entries(queryOverrides)) {
+    url.searchParams.set(key, value);
+  }
+
+  return `${url.pathname}${url.search}`;
+}
+
 /**
  * Proxy a request to Fluxer, returning the parsed JSON body for interception/rewriting.
  * The caller is responsible for setting ctx.status, ctx.set(), and ctx.body.

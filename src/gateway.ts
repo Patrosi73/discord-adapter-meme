@@ -4,7 +4,8 @@ import { Event as WaitableEvent } from "./util/event.ts";
 import { IncomingMessage } from "node:http";
 import { type GatewayCodec, JsonGatewayCodec, getCodec } from "./gateway/codecs.ts";
 import { transformD2F } from "./gateway/transformerD2F.ts";
-import { transformF2D } from "./gateway/transformerF2D.ts";
+import { transformF2D, transformEmojiF2D } from "./gateway/transformerF2D.ts";
+import { setEmojiUpdateListener } from "./emojiRegistry.ts";
 
 const FLUXER_GATEWAY_URL = "wss://gateway.fluxer.app/?encoding=json&v=1";
 
@@ -162,7 +163,7 @@ class GatewayProxy {
 
     #transformClientPayload(payload: any): any {
         const transformed = transformD2F(payload);
-        if (transformed !== payload) {
+        if (transformed && transformed !== payload) {
             console.log("[GatewayProxy/C=>F]", JSON.stringify(transformed, null, 0));
         }
         return transformed;
@@ -246,6 +247,18 @@ class GatewayProxy {
 }
 
 export async function startGatewayProxy() {
+    setEmojiUpdateListener((guildId, emojis) => {
+        for (const client of clients) {
+            client.sendLocalDispatch({
+                t: "GUILD_EMOJIS_UPDATE",
+                d: {
+                    guild_id: guildId,
+                    emojis: emojis.map(transformEmojiF2D)
+                }
+            });
+        }
+    });
+
     const wss = new WebSocketServer({
         port: DEFAULT_WEBSOCKET_PORT
     });
@@ -303,10 +316,7 @@ export function dispatchSettingsProtoUpdate(
     }
 }
 
-export function dispatchNotificationSettingsUpdate(
-    storeKey: string | undefined,
-    settings: { flags: number }
-) {
+export function dispatchNotificationSettingsUpdate(storeKey: string | undefined, settings: { flags: number }) {
     if (!storeKey) {
         console.warn("[NotificationSettings] Skipping gateway dispatch because store key is missing");
         return;

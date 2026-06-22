@@ -1,10 +1,12 @@
 import Router from "@koa/router";
 import Koa from "koa";
-import { proxyToFluxer, proxyToFluxerJSON, setHeaders } from "./proxy.ts";
+import { buildFluxerPathWithQuery, proxyToFluxer, proxyToFluxerJSON, setHeaders } from "./proxy.ts";
 import { LOCAL_WEBSOCKET_HOST } from "./constants.ts";
 import {
     transformMessageF2D,
     transformProfileF2D,
+    transformMutualRelationshipsF2D,
+    getProfileTransformOptionsFromQuery,
     transformConnectedAccountF2D,
     transformSessionsApiF2D,
     transformUserSettingsToProtoF2D,
@@ -18,6 +20,8 @@ import {
     mergeStoredSettingsProto,
     type SettingsProtoType
 } from "./settingsProto.ts";
+import { translateFluxerError } from "./fluxerErrors.ts";
+import { handleGetUserNote, handleListUserNotes, handlePutUserNote } from "./notes.ts";
 
 export const apiRouter = new Router({ prefix: "/api/v:version" });
 
@@ -160,34 +164,122 @@ apiRouter.get("/guilds/:guildId/integrations", ctx => {
 function makeSimpleBodyTransformer(transformer: (body: any) => any, overrideFetchOptions?: Partial<RequestInit>) {
     return async (ctx: Koa.Context) => {
         const { status, headers, body } = await proxyToFluxerJSON(ctx, undefined, overrideFetchOptions);
-        ctx.status = status;
         setHeaders(ctx, headers);
 
         if (isOK(status) && body) {
+            ctx.status = status;
             ctx.body = transformer(body);
         } else {
-            ctx.body = body;
+            const translated = translateFluxerError(body, status);
+            ctx.status = translated.status;
+            ctx.body = translated.body;
         }
     };
 }
 
-apiRouter.get(
-    "/channels/:channelId/messages",
-    makeSimpleBodyTransformer(body => body.map(transformMessageF2D))
-);
-
-apiRouter.post("/channels/:channelId/messages/:messageId/ack", async ctx => {
+apiRouter.get("/channels/:channelId/messages", async ctx => {
     const { status, headers, body } = await proxyToFluxerJSON(ctx);
     ctx.status = status;
     setHeaders(ctx, headers);
-    if (body) {
-        ctx.set("Content-Type", "application/json");
-        ctx.body = { token: null };
-        ctx.status = 200;
+
+    if (isOK(status) && body) {
+        ctx.body = body.map(transformMessageF2D);
+    } else {
+        const translated = translateFluxerError(body, status);
+        ctx.status = translated.status;
+        ctx.body = translated.body;
     }
 });
 
-apiRouter.get("/users/:userId/profile", makeSimpleBodyTransformer(transformProfileF2D));
+apiRouter.post("/channels/preload-messages", async ctx => {
+    const requestBody = await readJSONBody<{ channel_ids?: string[] }>(ctx);
+    const fluxerBody = {
+        channels: requestBody?.channel_ids ?? []
+    };
+
+    const { status, headers, body } = await proxyToFluxerJSON(ctx, "users/@me/preload-messages", {
+        method: "POST",
+        body: JSON.stringify(fluxerBody),
+        headers: {
+            "Content-Type": "application/json"
+        }
+    });
+    ctx.status = status;
+    setHeaders(ctx, headers);
+
+    if (isOK(status) && body && typeof body === "object") {
+        const messages: any[] = [];
+        for (const value of Object.values(body)) {
+            if (value) {
+                messages.push(transformMessageF2D(value));
+            }
+        }
+        ctx.body = messages;
+    } else {
+        ctx.body = [];
+    }
+});
+
+apiRouter.post("/channels/:channelId/messages/:messageId/ack", async ctx => {
+    await proxyToFluxerJSON(ctx);
+    ctx.status = 200;
+    ctx.body = { token: null };
+});
+
+apiRouter.get("/users/:userId/profile", async ctx => {
+    const profileOptions = getProfileTransformOptionsFromQuery(ctx.query);
+    const upstreamQuery: Record<string, string> = {};
+
+    if (profileOptions.withMutualGuilds) {
+        upstreamQuery.with_mutual_guilds = "true";
+    } else {
+        upstreamQuery.with_mutual_guilds = "false";
+    }
+
+    if (profileOptions.withMutualFriends || profileOptions.withMutualFriendsCount) {
+        upstreamQuery.with_mutual_friends = "true";
+    } else {
+        upstreamQuery.with_mutual_friends = "false";
+    }
+
+    const profilePath = buildFluxerPathWithQuery(ctx, upstreamQuery);
+    const { status, headers, body } = await proxyToFluxerJSON(ctx, profilePath);
+    ctx.status = status;
+    setHeaders(ctx, headers);
+
+    if (isOK(status) && body) {
+        ctx.body = transformProfileF2D(body, profileOptions);
+    } else {
+        const translated = translateFluxerError(body, status);
+        ctx.status = translated.status;
+        ctx.body = translated.body;
+    }
+});
+
+apiRouter.get("/users/:userId/relationships", async ctx => {
+    const userId = ctx.params.userId;
+    const profilePath = `/users/${userId}/profile?with_mutual_friends=true&with_mutual_guilds=false`;
+    const { status, headers, body } = await proxyToFluxerJSON(ctx, profilePath);
+    ctx.status = status;
+    setHeaders(ctx, headers);
+
+    if (isOK(status) && body) {
+        ctx.body = transformMutualRelationshipsF2D(body);
+    } else {
+        const translated = translateFluxerError(body, status);
+        ctx.status = translated.status;
+        ctx.body = translated.body;
+    }
+});
+
+apiRouter.get("/users/@me/notes", handleListUserNotes);
+apiRouter.get("/users/@me/notes/:userId", handleGetUserNote);
+apiRouter.put("/users/@me/notes/:userId", handlePutUserNote);
+
+apiRouter.get("/users/:userId/application-identities", ctx => {
+    ctx.body = { identities: [] };
+});
+
 apiRouter.get(
     "/users/@me/connections",
     makeSimpleBodyTransformer(body => {

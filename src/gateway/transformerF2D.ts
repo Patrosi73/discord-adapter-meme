@@ -34,10 +34,21 @@ import {
 } from "./fluxerStructs.ts";
 import { mergeStoredSettingsProto } from "../settingsProto.ts";
 import { getNotificationSettings } from "../notificationSettings.ts";
+import {
+    dispatchDiscoveredEmojiUpdates,
+    mergeDiscoveredEmojis,
+    registerEmojisFromMessage,
+    registerGuildChannel,
+    registerGuildChannels,
+    resolveMessageGuildId
+} from "../emojiRegistry.ts";
 
 export function transformChannelF2D(channel: any): any {
+    registerGuildChannel(channel);
+
     return {
-        ...channel
+        ...channel,
+        recipients: channel.recipients?.map((recipient: any) => transformUserF2D(recipient))
     };
 }
 
@@ -45,10 +56,9 @@ function transformUserFlagsF2D(userFlags: number | string | bigint = 0): bigint 
     userFlags = BigInt(userFlags);
     let flags = 0n;
 
-    if (userFlags & DiscordUserFlags.STAFF) flags |= FluxerUserFlags.STAFF;
-    if (userFlags & DiscordUserFlags.PARTNER) flags |= FluxerUserFlags.PARTNER;
-    if (userFlags & DiscordUserFlags.BUG_HUNTER_LEVEL_1) flags |= FluxerUserFlags.BUG_HUNTER;
-    if (userFlags & DiscordUserFlags.BUG_HUNTER_LEVEL_2) flags |= FluxerUserFlags.BUG_HUNTER;
+    if (userFlags & FluxerUserFlags.STAFF) flags |= DiscordUserFlags.STAFF;
+    if (userFlags & FluxerUserFlags.PARTNER) flags |= DiscordUserFlags.PARTNER;
+    if (userFlags & FluxerUserFlags.BUG_HUNTER) flags |= DiscordUserFlags.BUG_HUNTER_LEVEL_1;
 
     return flags;
 }
@@ -121,6 +131,31 @@ export function transformUserF2D(user: FluxerUser, hack: boolean = false): any {
     };
 }
 
+export function transformPartialUserF2D(user: FluxerUser): any {
+    const transformed = transformUserF2D(user);
+    const publicFlags = Number(transformed.public_flags ?? 0);
+
+    return {
+        id: transformed.id,
+        username: transformed.username,
+        global_name: transformed.global_name,
+        avatar: transformed.avatar,
+        avatar_decoration_data: transformed.avatar_decoration_data ?? null,
+        discriminator: transformed.discriminator,
+        public_flags: publicFlags,
+        primary_guild: transformed.primary_guild ?? null
+    };
+}
+
+export function transformMutualRelationshipsF2D(profile: FluxerProfile): any[] {
+    return (
+        profile.mutual_friends?.map(friend => {
+            const user = friend?.user ?? friend;
+            return transformPartialUserF2D(user);
+        }) ?? []
+    );
+}
+
 export function transformMemberF2D(member: any): DiscordGuildMember {
     const userId = member.user?.id;
 
@@ -133,22 +168,96 @@ export function transformMemberF2D(member: any): DiscordGuildMember {
     };
 }
 
-export function transformUserProfileF2D(profile: FluxerUserProfile): DiscordProfileMetadata {
-    return {
-        ...profile,
+export function transformUserProfileF2D(
+    profile: FluxerUserProfile,
+    guildId?: string | string[]
+): DiscordProfileMetadata {
+    const resolvedGuildId = Array.isArray(guildId) ? guildId[0] : guildId;
+
+    const metadata: DiscordProfileMetadata = {
         pronouns: profile.pronouns ?? "",
-        bio: profile.bio ?? undefined
+        bio: profile.bio ?? undefined,
+        banner: profile.banner,
+        accent_color: profile.accent_color ?? profile.banner_color ?? null
     };
+
+    if (resolvedGuildId) {
+        metadata.guild_id = resolvedGuildId;
+    }
+
+    return metadata;
 }
 
-export function transformProfileF2D(profile: FluxerProfile): any {
-    return {
-        ...profile,
+export function transformProfileF2D(profile: FluxerProfile, options: ProfileTransformOptions = {}): any {
+    const {
+        guildId,
+        withMutualGuilds = true,
+        withMutualFriends = false,
+        withMutualFriendsCount = false
+    } = options;
+    const resolvedGuildId = Array.isArray(guildId) ? guildId[0] : guildId;
+    const profileLimited = profile.profile_limited ?? false;
+
+    const user = transformProfileUserF2D(profile.user, profile.user_profile);
+
+    if (profileLimited) {
+        const limited: Record<string, unknown> = {
+            user,
+            profile_limited: true
+        };
+
+        if (profile.timezone_offset !== undefined) {
+            limited.timezone_offset = profile.timezone_offset;
+        }
+
+        return limited;
+    }
+
+    const mutualFriends = transformMutualRelationshipsF2D(profile);
+
+    const result: Record<string, unknown> = {
+        user,
+        user_profile: transformUserProfileF2D(profile.user_profile, guildId),
         badges: fluxerFlagsToBadges(profile.user.flags, profile.premium_type),
-        user: transformUserF2D(profile.user),
-        user_profile: transformUserProfileF2D(profile.user_profile),
-        connected_accounts: profile.connected_accounts?.map(transformConnectedAccountF2D) ?? []
+        connected_accounts: profile.connected_accounts?.map(transformProfileConnectedAccountF2D) ?? [],
+        premium_type: profile.premium_type ?? 0,
+        premium_since: profile.premium_since ?? null,
+        guild_badges: []
     };
+
+    if (profile.premium_guild_since !== undefined) {
+        result.premium_guild_since = profile.premium_guild_since;
+    }
+
+    if (withMutualGuilds) {
+        result.mutual_guilds =
+            profile.mutual_guilds?.map(guild => ({
+                id: guild.id,
+                nick: guild.nick ?? null
+            })) ?? [];
+    }
+
+    if (withMutualFriends) {
+        result.mutual_friends = mutualFriends;
+    }
+
+    if (withMutualFriendsCount) {
+        result.mutual_friends_count = mutualFriends.length;
+    }
+
+    if (resolvedGuildId && profile.guild_member) {
+        result.guild_member = transformMemberF2D(profile.guild_member);
+    }
+
+    if (resolvedGuildId && profile.guild_member_profile) {
+        result.guild_member_profile = profile.guild_member_profile;
+    }
+
+    if (profile.timezone_offset !== undefined) {
+        result.timezone_offset = profile.timezone_offset;
+    }
+
+    return result;
 }
 
 export function transformPresenceF2D(presence: any, userId: bigint | string): any {
@@ -168,9 +277,11 @@ export function transformEmojiF2D(emoji: any): DiscordPartialEmoji {
     return {
         name: emoji.name,
         id: emoji.id ?? null,
+        animated: emoji.animated ?? false,
         available: true,
+        managed: emoji.managed ?? false,
         require_colons: !!emoji.id, // custom emojis require colons
-        roles: []
+        roles: emoji.roles ?? []
     };
 }
 
@@ -244,30 +355,155 @@ export function transformConnectedAccountF2D(account: any): any {
     return normalized;
 }
 
+function transformProfileConnectedAccountF2D(account: any): any {
+    const normalized = transformConnectedAccountF2D(account);
+    const result: Record<string, unknown> = {
+        type: normalized.type,
+        id: normalized.id,
+        name: normalized.name,
+        verified: normalized.verified
+    };
+
+    if (normalized.metadata) {
+        result.metadata = normalized.metadata;
+    }
+
+    return result;
+}
+
+function transformProfileUserF2D(user: FluxerUser, userProfile: FluxerUserProfile): any {
+    const transformed = transformUserF2D(user);
+    const flags = Number(transformed.public_flags ?? 0);
+
+    const profileUser: Record<string, unknown> = {
+        id: transformed.id,
+        username: transformed.username,
+        global_name: transformed.global_name,
+        avatar: transformed.avatar,
+        avatar_decoration_data: transformed.avatar_decoration_data ?? null,
+        discriminator: transformed.discriminator,
+        display_name_styles: transformed.display_name_styles ?? null,
+        public_flags: flags,
+        primary_guild: transformed.primary_guild ?? null,
+        flags,
+        banner: userProfile.banner ?? null,
+        banner_color: userProfile.banner_color ?? null,
+        accent_color: userProfile.accent_color ?? userProfile.banner_color ?? null,
+        bio: userProfile.bio ?? null
+    };
+
+    if (transformed.collectibles) {
+        profileUser.collectibles = transformed.collectibles;
+    }
+
+    if (transformed.primary_guild) {
+        profileUser.clan = transformed.primary_guild;
+    }
+
+    return profileUser;
+}
+
+export interface ProfileTransformOptions {
+    guildId?: string | string[];
+    withMutualGuilds?: boolean;
+    withMutualFriends?: boolean;
+    withMutualFriendsCount?: boolean;
+}
+
+export function parseProfileQueryFlag(
+    value: string | string[] | undefined,
+    defaultValue: boolean
+): boolean {
+    const resolved = Array.isArray(value) ? value[0] : value;
+    if (resolved === undefined) {
+        return defaultValue;
+    }
+    return resolved === "true";
+}
+
+export function getProfileTransformOptionsFromQuery(query: Record<string, unknown>): ProfileTransformOptions {
+    return {
+        guildId: query.guild_id as string | string[] | undefined,
+        withMutualGuilds: parseProfileQueryFlag(query.with_mutual_guilds as string | string[] | undefined, true),
+        withMutualFriends: parseProfileQueryFlag(query.with_mutual_friends as string | string[] | undefined, false),
+        withMutualFriendsCount: parseProfileQueryFlag(
+            query.with_mutual_friends_count as string | string[] | undefined,
+            false
+        )
+    };
+}
+
+function transformMessageSnapshotFieldsF2D(snapshot: any): any {
+    return {
+        type: snapshot.type ?? 0,
+        content: snapshot.content ?? "",
+        timestamp: snapshot.timestamp,
+        edited_timestamp: snapshot.edited_timestamp ?? null,
+        flags: transformMessageFlagsF2D(snapshot.flags ?? 0),
+        mentions: snapshot.mentions ?? [],
+        mention_roles: snapshot.mention_roles ?? [],
+        mention_channels: snapshot.mention_channels ?? [],
+        embeds: snapshot.embeds ?? [],
+        attachments: snapshot.attachments ?? [],
+        stickers: snapshot.stickers ?? [],
+        components: snapshot.components ?? []
+    };
+}
+
+function transformMessageSnapshotsF2D(snapshots: any[] | null | undefined): any[] | undefined {
+    if (!snapshots) {
+        return undefined;
+    }
+
+    return snapshots.map(snapshot => ({
+        message: transformMessageSnapshotFieldsF2D(snapshot.message ?? snapshot)
+    }));
+}
+
 export function transformMessageF2D(message: any): any {
-    const { channel, ...messageWithoutChannel } = message;
+    const guildId = resolveMessageGuildId(message);
+    const discoveredNewEmoji = registerEmojisFromMessage(message);
+
+    const { channel, users: _users, message_snapshots, ...messageWithoutChannel } = message;
     const transformedReferencedMessage = message.referenced_message
         ? transformMessageF2D({
-              guild_id: message.guild_id,
+              guild_id: guildId,
               channel_id: message.channel_id,
               ...message.referenced_message
           })
         : undefined;
 
-    return {
+    const transformed = {
         tts: message.tts ?? false,
         mention_roles: [],
         components: [],
         ...messageWithoutChannel,
+        ...(guildId ? { guild_id: guildId } : {}),
+        embeds: message.embeds ?? [],
+        attachments: message.attachments ?? [],
+        stickers: message.stickers ?? [],
+        mention_channels: message.mention_channels ?? [],
+        message_snapshots: transformMessageSnapshotsF2D(message_snapshots),
         flags: transformMessageFlagsF2D(message.flags ?? 0),
         author: message.author ? transformUserF2D(message.author) : undefined,
         referenced_message: transformedReferencedMessage,
-        reactions: message.reactions?.map(transformReactionF2D)
+        reactions: message.reactions?.map(transformReactionF2D) ?? []
     };
+
+    if (discoveredNewEmoji && guildId) {
+        dispatchDiscoveredEmojiUpdates(guildId);
+    }
+
+    return transformed;
 }
 
 export function transformGuildF2D(guild: FluxerGuild): any {
     guild = normalizeFluxerGuild(guild);
+
+    registerGuildChannels(guild.id, guild.channels);
+
+    const baseEmojis = guild.emojis?.map(transformEmojiF2D) ?? [];
+    const emojis = mergeDiscoveredEmojis(guild.id, baseEmojis);
 
     return {
         version: Date.now(),
@@ -284,7 +520,7 @@ export function transformGuildF2D(guild: FluxerGuild): any {
         data_mode: "full",
         ...guild,
         channels: guild.channels?.map(transformChannelF2D),
-        emojis: guild.emojis?.map(transformEmojiF2D) ?? [],
+        emojis,
         stickers: guild.stickers?.map(transformStickerF2D) ?? [],
         members: guild.members?.map(transformMemberF2D)
     };
@@ -388,7 +624,13 @@ function transformUserGuildSettingsF2D(settings: any[]): VersionedArray<DiscordU
     for (const setting of settings) {
         const channelOverrides: DiscordChannelOverride[] = [];
 
-        for (const [channelId, settings] of Object.entries<FluxerChannelOverride>(setting.channel_overrides)) {
+        if (setting.channel_overrides == null) {
+            console.warn(
+                `[transformUserGuildSettingsF2D] guild ${setting.guild_id} has null/undefined channel_overrides; skipping`
+            );
+        }
+
+        for (const [channelId, settings] of Object.entries<FluxerChannelOverride>(setting.channel_overrides ?? {})) {
             channelOverrides.push({
                 channel_id: channelId,
                 collapsed: settings.collapsed,
@@ -466,6 +708,21 @@ function transformReadyF2D(payload: any, settingsProtoAuthKey?: string): any {
     );
     const notificationSettings = getNotificationSettings(settingsProtoAuthKey);
 
+    const transformedPrivateChannels = payload.d.private_channels?.map(transformChannelF2D) ?? [];
+
+    const allUsersMap = new Map<string, any>();
+    for (const user of payload.d.users ?? []) {
+        allUsersMap.set(user.id, user);
+    }
+    for (const channel of payload.d.private_channels ?? []) {
+        for (const recipient of channel.recipients ?? []) {
+            if (!allUsersMap.has(recipient.id)) {
+                allUsersMap.set(recipient.id, recipient);
+            }
+        }
+    }
+    const allUsers = Array.from(allUsersMap.values()).map(user => transformUserF2D(user));
+
     payload = {
         op: 0,
         t: "READY",
@@ -485,13 +742,13 @@ function transformReadyF2D(payload: any, settingsProtoAuthKey?: string): any {
             relationships: payload.d.relationships ?? [],
             game_relationships: [],
             friend_suggestion_count: 0,
-            private_channels: payload.d.private_channels ?? [],
+            private_channels: transformedPrivateChannels,
             connected_accounts: payload.d.connected_accounts?.map(transformConnectedAccountF2D) ?? [],
             notes: payload.d.notes,
             presences: payload.d.presences?.map((p: any) => transformPresenceF2D(p, p.user.id)),
             merged_presences: {},
             merged_members: mergedMembers,
-            users: payload.d.users?.map(transformUserF2D),
+            users: allUsers,
             linked_users: [],
             session_id: currSessionId,
             session_type: "normal",
@@ -558,6 +815,22 @@ function transformGuildCreateF2D(payload: any): any {
     };
 }
 
+function transformGuildEmojisUpdateF2D(payload: any): any {
+    const guildId = payload.d.guild_id;
+    const emojis = payload.d.emojis?.map(transformEmojiF2D) ?? [];
+    const transformedEmojis = mergeDiscoveredEmojis(guildId, emojis);
+
+    return {
+        op: 0,
+        t: "GUILD_EMOJIS_UPDATE",
+        d: {
+            guild_id: guildId,
+            emojis: transformedEmojis
+        },
+        s: payload.s
+    };
+}
+
 function transformGuildUpdateF2D(payload: any): any {
     return {
         op: 0,
@@ -594,12 +867,16 @@ function transformGuildSyncF2D(payload: any) {
 
     const emojis = payload.d.emojis;
     if (emojis) {
+        const transformedEmojis = mergeDiscoveredEmojis(
+            payload.d.id,
+            emojis.map(transformEmojiF2D)
+        );
         payloads.push({
             op: 0,
             t: "GUILD_EMOJIS_UPDATE",
             d: {
                 guild_id: payload.d.id,
-                emojis: emojis.map(transformEmojiF2D)
+                emojis: transformedEmojis
             },
             s: payload.s
         });
@@ -781,10 +1058,34 @@ function transformUserSettingsUpdateF2D(payload: any, settingsProtoAuthKey?: str
     };
 }
 
+function transformChannelCreateF2D(payload: any): any {
+    return {
+        op: 0,
+        t: "CHANNEL_CREATE",
+        d: transformChannelF2D(payload.d),
+        s: payload.s
+    };
+}
+
+function transformChannelUpdateF2D(payload: any): any {
+    return {
+        op: 0,
+        t: "CHANNEL_UPDATE",
+        d: transformChannelF2D(payload.d),
+        s: payload.s
+    };
+}
+
 function transformDispatchF2D(payload: any, settingsProtoAuthKey?: string): any {
     switch (payload.t) {
         case "READY": {
             return transformReadyF2D(payload, settingsProtoAuthKey);
+        }
+        case "CHANNEL_CREATE": {
+            return transformChannelCreateF2D(payload);
+        }
+        case "CHANNEL_UPDATE": {
+            return transformChannelUpdateF2D(payload);
         }
         case "MESSAGE_CREATE": {
             return transformMessageCreateF2D(payload);
@@ -803,6 +1104,9 @@ function transformDispatchF2D(payload: any, settingsProtoAuthKey?: string): any 
         }
         case "GUILD_SYNC": {
             return transformGuildSyncF2D(payload);
+        }
+        case "GUILD_EMOJIS_UPDATE": {
+            return transformGuildEmojisUpdateF2D(payload);
         }
         case "GUILD_MEMBER_UPDATE": {
             return transformGuildMemberUpdate(payload);

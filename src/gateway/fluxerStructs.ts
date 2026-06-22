@@ -255,8 +255,13 @@ export const FluxerUserFlags = {
 export interface FluxerProfile {
   connected_accounts: any[];
   mutual_friends: FluxerRelationship[];
-  mutual_guilds: FluxerGuild[];
+  mutual_guilds: Array<{ id: string; nick?: string | null }>;
   premium_type?: number;
+  premium_since?: string | null;
+  guild_member?: any;
+  guild_member_profile?: any;
+  timezone_offset?: number | null;
+  profile_limited?: boolean;
   user: FluxerUserPartial;
   user_profile: FluxerUserProfile;
 }
