@@ -7,16 +7,26 @@ export interface Certificates {
   cert: string;
 }
 
-const CERT_PATH = path.join(process.cwd(), "localhost.pem");
-const KEY_PATH = path.join(process.cwd(), "localhost-key.pem");
+function resolveCertPaths() {
+  const userDataDir = process.env.VENCORD_USER_DATA_DIR?.trim();
+  const dir = userDataDir ? path.join(userDataDir, "discord-adapter-meme") : process.cwd();
+
+  return {
+    dir,
+    certPath: path.join(dir, "localhost.pem"),
+    keyPath: path.join(dir, "localhost-key.pem"),
+  };
+}
 
 export async function getOrCreateCerts(): Promise<Certificates> {
+  const { dir, certPath, keyPath } = resolveCertPaths();
+
   try {
     const [key, cert] = await Promise.all([
-      fs.readFile(KEY_PATH, "utf-8"),
-      fs.readFile(CERT_PATH, "utf-8"),
+      fs.readFile(keyPath, "utf-8"),
+      fs.readFile(certPath, "utf-8"),
     ]);
-    console.log("Using existing SSL certificates found in root.");
+    console.log("Using existing SSL certificates.");
     return { key, cert };
   } catch (err) {
     console.log("Generating new self-signed SSL certificates...");
@@ -52,13 +62,10 @@ export async function getOrCreateCerts(): Promise<Certificates> {
     const key = pems.private;
     const cert = pems.cert;
 
-    // Save for future use
-    await Promise.all([
-      fs.writeFile(KEY_PATH, key),
-      fs.writeFile(CERT_PATH, cert),
-    ]);
+    await fs.mkdir(dir, { recursive: true });
+    await Promise.all([fs.writeFile(keyPath, key), fs.writeFile(certPath, cert)]);
 
-    console.log("SSL certificates generated and saved to root.");
+    console.log(`SSL certificates generated and saved to ${dir}.`);
     return { key, cert };
   }
 }
