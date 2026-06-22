@@ -21,8 +21,8 @@ importers:
         specifier: 1.2.102
         version: 1.2.102
       erlpack:
-        specifier: ^0.1.4
-        version: 0.1.4
+        specifier: github:Patrosi73/erlpack
+        version: https://codeload.github.com/Patrosi73/erlpack/tar.gz/db57af18dc14c9e051315e8e7b89d389e2df4681
       eta:
         specifier: ^4.5.1
         version: 4.5.1
@@ -265,8 +265,9 @@ packages:
     resolution: {integrity: sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==}
     engines: {node: '>=0.12'}
 
-  erlpack@0.1.4:
-    resolution: {integrity: sha512-CJYbkEvsB5FqCCu2tLxF1eYKi28PvemC12oqzJ9oO6mDFrFO9G9G7nNJUHhiAyyL9zfXTOJx/tOcrQk+ncD65w==}
+  erlpack@https://codeload.github.com/Patrosi73/erlpack/tar.gz/db57af18dc14c9e051315e8e7b89d389e2df4681:
+    resolution: {tarball: https://codeload.github.com/Patrosi73/erlpack/tar.gz/db57af18dc14c9e051315e8e7b89d389e2df4681}
+    version: 0.1.3
 
   escape-html@1.0.3:
     resolution: {integrity: sha512-NiSupZ4OeuGwr68lGIeym/ksIZMJodUGOSCZ/FSnTxcrekbvqrgdUxlJOMpijaKZVjAJrWrGs/6Jy8OMuyj9ow==}
@@ -762,7 +763,7 @@ snapshots:
 
   entities@7.0.1: {}
 
-  erlpack@0.1.4:
+  erlpack@https://codeload.github.com/Patrosi73/erlpack/tar.gz/db57af18dc14c9e051315e8e7b89d389e2df4681:
     dependencies:
       bindings: 1.5.0
       nan: 2.25.0
