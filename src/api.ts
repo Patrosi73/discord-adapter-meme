@@ -346,12 +346,16 @@ apiRouter.get("/users/@me/affinities/channels", async ctx => {
 
 apiRouter.get("/auth/sessions", makeSimpleBodyTransformer(transformSessionsApiF2D));
 
-apiRouter.put(
-    "/users/@me/relationships/:userId",
-    makeSimpleBodyTransformer(body => body, {
-        method: "POST"
-    })
-);
+apiRouter.put("/users/@me/relationships/:userId", async ctx => {
+    const body = await readJSONBody<Record<string, unknown>>(ctx);
+    const isFriendRequest = !body || (!body.type && !body.confirm_stranger_request);
+
+    return makeSimpleBodyTransformer(b => b, {
+        method: isFriendRequest ? "POST" : "PUT",
+        body: isFriendRequest ? "{}" : JSON.stringify(body),
+        headers: { "Content-Type": "application/json" }
+    })(ctx);
+});
 
 apiRouter.get("/discoverable-guilds", async ctx => {
     const { status, headers, body } = await proxyToFluxerJSON(ctx, "discovery/guilds?" + ctx.querystring, {
