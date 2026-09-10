@@ -34,6 +34,7 @@ import {
 } from "./fluxerStructs.ts";
 import { mergeStoredSettingsProto } from "../settingsProto.ts";
 import { getNotificationSettings } from "../notificationSettings.ts";
+import { rewriteFluxerCdnHostsToLocal } from "../cdn.ts";
 import {
     dispatchDiscoveredEmojiUpdates,
     mergeDiscoveredEmojis,
@@ -436,14 +437,14 @@ export function getProfileTransformOptionsFromQuery(query: Record<string, unknow
 function transformMessageSnapshotFieldsF2D(snapshot: any): any {
     return {
         type: snapshot.type ?? 0,
-        content: snapshot.content ?? "",
+        content: rewriteFluxerCdnHostsToLocal(snapshot.content ?? ""),
         timestamp: snapshot.timestamp,
         edited_timestamp: snapshot.edited_timestamp ?? null,
         flags: transformMessageFlagsF2D(snapshot.flags ?? 0),
         mentions: snapshot.mentions ?? [],
         mention_roles: snapshot.mention_roles ?? [],
         mention_channels: snapshot.mention_channels ?? [],
-        embeds: snapshot.embeds ?? [],
+        embeds: JSON.parse(rewriteFluxerCdnHostsToLocal(JSON.stringify(snapshot.embeds ?? []))),
         attachments: snapshot.attachments ?? [],
         stickers: snapshot.stickers ?? [],
         components: snapshot.components ?? []
@@ -479,7 +480,11 @@ export function transformMessageF2D(message: any): any {
         components: [],
         ...messageWithoutChannel,
         ...(guildId ? { guild_id: guildId } : {}),
-        embeds: message.embeds ?? [],
+        content:
+            typeof message.content === "string"
+                ? rewriteFluxerCdnHostsToLocal(message.content)
+                : message.content,
+        embeds: JSON.parse(rewriteFluxerCdnHostsToLocal(JSON.stringify(message.embeds ?? []))),
         attachments: message.attachments ?? [],
         stickers: message.stickers ?? [],
         mention_channels: message.mention_channels ?? [],

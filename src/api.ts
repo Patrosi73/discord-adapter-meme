@@ -2,6 +2,7 @@ import Router from "@koa/router";
 import Koa from "koa";
 import { buildFluxerPathWithQuery, proxyToFluxer, proxyToFluxerJSON, setHeaders } from "./proxy.ts";
 import { LOCAL_WEBSOCKET_HOST } from "./constants.ts";
+import { rewriteLocalCdnHostsInContent } from "./cdn.ts";
 import {
     transformMessageF2D,
     transformProfileF2D,
@@ -190,6 +191,34 @@ apiRouter.get("/channels/:channelId/messages", async ctx => {
         ctx.body = translated.body;
     }
 });
+
+async function handleMessageWrite(ctx: Koa.Context) {
+    const requestBody = await readJSONBody<Record<string, any>>(ctx);
+
+    if (requestBody && typeof requestBody.content === "string") {
+        requestBody.content = rewriteLocalCdnHostsInContent(requestBody.content);
+    }
+
+    const { status, headers, body } = await proxyToFluxerJSON(ctx, undefined, {
+        method: ctx.method,
+        body: JSON.stringify(requestBody ?? {}),
+        headers: {
+            "Content-Type": "application/json"
+        }
+    });
+    ctx.status = status;
+    setHeaders(ctx, headers);
+
+    if (isOK(status) && body) {
+        ctx.body = transformMessageF2D(body);
+    } else {
+        const translated = translateFluxerError(body, status);
+        ctx.status = translated.status;
+        ctx.body = translated.body;
+    }
+}
+apiRouter.post("/channels/:channelId/messages", handleMessageWrite);
+apiRouter.patch("/channels/:channelId/messages/:messageId", handleMessageWrite);
 
 apiRouter.post("/channels/preload-messages", async ctx => {
     const requestBody = await readJSONBody<{ channel_ids?: string[] }>(ctx);

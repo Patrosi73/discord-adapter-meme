@@ -1,9 +1,23 @@
 import Router from "@koa/router";
 import Koa from "koa";
+import { LOCAL_HOST } from "./constants.ts";
 import { proxyToUrl } from "./proxy.ts";
 
-const FLUXER_CDN_BASE = "https://fluxerusercontent.com";
+export const FLUXER_CDN_BASE = "https://fluxerusercontent.com";
 const FLUXER_STATIC_BASE = "https://fluxerstatic.com";
+const LOCAL_CDN_BASE = `https://${LOCAL_HOST}`;
+
+function escapeRegExp(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function rewriteLocalCdnHostsInContent(content: string): string {
+    return content.replace(new RegExp(`https?:\\/\\/${escapeRegExp(LOCAL_HOST)}`, "gi"), FLUXER_CDN_BASE);
+}
+
+export function rewriteFluxerCdnHostsToLocal(content: string): string {
+    return content.replace(new RegExp(escapeRegExp(FLUXER_CDN_BASE), "gi"), LOCAL_CDN_BASE);
+}
 
 type CdnRoute = {
     path: string;
@@ -16,6 +30,7 @@ const remapDiscoverySplashPath = (ctx: Koa.Context) =>
     ctx.path.replace(/^\/discovery-splashes\//, "/embed-splashes/").replace(/\.[^/.]+$/, ".webp");
 
 const CDN_ROUTES: CdnRoute[] = [
+    { path: "/external/*assetPath" },
     { path: "/attachments-quick-links/*assetPath" },
     { path: "/app-assets/:applicationId/achievements/:achievementId/icons/:iconAsset" },
     { path: "/app-assets/:applicationId/store/:assetId" },
