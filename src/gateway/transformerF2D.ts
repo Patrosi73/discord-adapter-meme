@@ -34,8 +34,8 @@ import {
 } from "./fluxerStructs.ts";
 import { mergeStoredSettingsProto } from "../settingsProto.ts";
 import { getNotificationSettings } from "../notificationSettings.ts";
-import { rewriteFluxerCdnHostsToLocal } from "../cdn.ts";
 import {
+    type DiscoveredEmoji,
     dispatchDiscoveredEmojiUpdates,
     mergeDiscoveredEmojis,
     registerEmojisFromMessage,
@@ -79,7 +79,7 @@ export function fluxerFlagsToBadges(flags: string | number | bigint, premium_typ
         badges.push({
             id: "staff",
             description: "Fluxer Staff",
-            icon: "../badges/staff.svg?x=", // TODO: oops it's on fluxerstatic.com not fluxerusercontent.com
+            icon: "../badges/staff.svg?x=",
             link: "https://fluxer.app/careers"
         });
 
@@ -225,10 +225,6 @@ export function transformProfileF2D(profile: FluxerProfile, options: ProfileTran
         premium_since: profile.premium_since ?? null,
         guild_badges: []
     };
-
-    if (profile.premium_guild_since !== undefined) {
-        result.premium_guild_since = profile.premium_guild_since;
-    }
 
     if (withMutualGuilds) {
         result.mutual_guilds =
@@ -437,14 +433,14 @@ export function getProfileTransformOptionsFromQuery(query: Record<string, unknow
 function transformMessageSnapshotFieldsF2D(snapshot: any): any {
     return {
         type: snapshot.type ?? 0,
-        content: rewriteFluxerCdnHostsToLocal(snapshot.content ?? ""),
+        content: snapshot.content ?? "",
         timestamp: snapshot.timestamp,
         edited_timestamp: snapshot.edited_timestamp ?? null,
         flags: transformMessageFlagsF2D(snapshot.flags ?? 0),
         mentions: snapshot.mentions ?? [],
         mention_roles: snapshot.mention_roles ?? [],
         mention_channels: snapshot.mention_channels ?? [],
-        embeds: JSON.parse(rewriteFluxerCdnHostsToLocal(JSON.stringify(snapshot.embeds ?? []))),
+        embeds: snapshot.embeds ?? [],
         attachments: snapshot.attachments ?? [],
         stickers: snapshot.stickers ?? [],
         components: snapshot.components ?? []
@@ -480,11 +476,7 @@ export function transformMessageF2D(message: any): any {
         components: [],
         ...messageWithoutChannel,
         ...(guildId ? { guild_id: guildId } : {}),
-        content:
-            typeof message.content === "string"
-                ? rewriteFluxerCdnHostsToLocal(message.content)
-                : message.content,
-        embeds: JSON.parse(rewriteFluxerCdnHostsToLocal(JSON.stringify(message.embeds ?? []))),
+        embeds: message.embeds ?? [],
         attachments: message.attachments ?? [],
         stickers: message.stickers ?? [],
         mention_channels: message.mention_channels ?? [],
@@ -508,7 +500,10 @@ export function transformGuildF2D(guild: FluxerGuild): any {
     registerGuildChannels(guild.id, guild.channels);
 
     const baseEmojis = guild.emojis?.map(transformEmojiF2D) ?? [];
-    const emojis = mergeDiscoveredEmojis(guild.id, baseEmojis);
+    const emojis = mergeDiscoveredEmojis(
+        guild.id,
+        baseEmojis.filter((emoji): emoji is DiscoveredEmoji => emoji.id !== null)
+    );
 
     return {
         version: Date.now(),
@@ -1166,7 +1161,7 @@ export function transformInviteApiF2D(invite: any): any {
             icon_hash: guild.icon,
             member_count: member_count,
             online_count: presence_count,
-            description: guild.description || null,
+            description: null,
             banner_hash: guild.banner,
             game_application_ids: [],
             game_activity: {},

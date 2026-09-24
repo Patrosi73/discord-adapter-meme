@@ -1,5 +1,6 @@
 export const ADAPTER_IPC_EVENT = "adapter:event";
 export const ADAPTER_EVENT_INVALID_TOKEN = "fluxer-invalid-token";
+export const ADAPTER_EVENT_READY = "adapter-ready";
 
 export function sendAdapterEvent(event: string) {
     const message = {

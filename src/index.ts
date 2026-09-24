@@ -6,6 +6,8 @@ import { isLocalCdnAssetPath } from "./cdn.ts";
 import { DEFAULT_PORT } from "./constants.ts";
 import { getOrCreateCerts } from "./cert.ts";
 import { startGatewayProxy } from "./gateway.ts";
+import { ADAPTER_EVENT_READY, sendAdapterEvent } from "./processIpc.ts";
+import { setHeaders } from "./proxy.ts";
 
 const start = async () => {
     console.log("Initializing ClientLoader...");
@@ -34,13 +36,7 @@ const start = async () => {
                 });
 
                 ctx.status = res.status;
-                for (const [key, value] of res.headers.entries()) {
-                    const lowerKey = key.toLowerCase();
-                    if (["content-encoding", "transfer-encoding", "connection", "keep-alive"].includes(lowerKey)) {
-                        continue;
-                    }
-                    ctx.set(key, value);
-                }
+                setHeaders(ctx, res.headers);
 
                 // @ts-ignore
                 ctx.body = res.body;
@@ -86,6 +82,7 @@ const start = async () => {
     const PORT = process.env.PORT || DEFAULT_PORT;
     https.createServer({ key, cert }, app.callback()).listen(PORT, () => {
         console.log(`Adapter server running at https://localhost:${PORT}`);
+        sendAdapterEvent(ADAPTER_EVENT_READY);
     });
 
     await startGatewayProxy();

@@ -6,8 +6,10 @@ import { type GatewayCodec, JsonGatewayCodec, getCodec } from "./gateway/codecs.
 import { transformD2F } from "./gateway/transformerD2F.ts";
 import { transformF2D, transformEmojiF2D } from "./gateway/transformerF2D.ts";
 import { setEmojiUpdateListener } from "./emojiRegistry.ts";
+import { fluxerConfig } from "./fluxerConfig.ts";
+import { ADAPTER_EVENT_INVALID_TOKEN, sendAdapterEvent } from "./processIpc.ts";
 
-const FLUXER_GATEWAY_URL = "wss://gateway.fluxer.app/?encoding=json&v=1";
+const FLUXER_GATEWAY_URL = fluxerConfig.gatewayUrl;
 
 type EventQueueItem =
     | { type: "clientMsg"; payload: any }
@@ -223,6 +225,7 @@ class GatewayProxy {
                         break;
                     case "fluxerClose":
                         console.log(`[GatewayProxy] Fluxer closed (${item.code}: ${item.reason})`);
+                        if (item.code === 4004) sendAdapterEvent(ADAPTER_EVENT_INVALID_TOKEN);
                         this.close();
                         break;
                     case "error":

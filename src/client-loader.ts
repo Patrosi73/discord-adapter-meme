@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { LOCAL_HOST, LOCAL_WEBSOCKET_HOST } from "./constants.ts";
+import { fluxerConfig as fluxer } from "./fluxerConfig.ts";
 
 export const BASE_URL = "https://discord.com";
 
@@ -64,10 +65,7 @@ export class ClientLoader {
             $("script")
                 .filter((_, el) => {
                     const content = $(el).text();
-          return (
-            content.includes("window.WebSocket") &&
-            content.includes("FAST CONNECT")
-          );
+                    return content.includes("window.WebSocket") && content.includes("FAST CONNECT");
                 })
                 .first()
                 .html() || "";
@@ -123,9 +121,9 @@ export class ClientLoader {
             HTML_TIMESTAMP: Date.now(),
             BUILD_NUMBER: "503231",
             PROJECT_ENV: "production",
-            RELEASE_CHANNEL: "stable",
+            RELEASE_CHANNEL: fluxer.releaseChannel,
             VERSION_HASH: "dev",
-            PRIMARY_DOMAIN: "fluxer.app",
+            PRIMARY_DOMAIN: fluxer.primaryDomain,
             PUBLIC_PATH: "/assets/",
             LOCATION: "history",
             API_VERSION: 9,
@@ -138,23 +136,23 @@ export class ClientLoader {
             IMAGE_PROXY_ENDPOINTS: "//images-ext-1.discordapp.net,//images-ext-2.discordapp.net",
             CDN_HOST: `//${LOCAL_HOST}`,
             DEVELOPERS_ENDPOINT: `//${LOCAL_HOST}`,
-            MARKETING_ENDPOINT: `//${LOCAL_HOST}`,
+            MARKETING_ENDPOINT: fluxer.marketingHost,
             WEBAPP_ENDPOINT: `//${LOCAL_HOST}`,
             WIDGET_ENDPOINT: `//${LOCAL_HOST}/widget`,
             ADS_MANAGER_ENDPOINT: "//ads.discord.com",
             NETWORKING_ENDPOINT: "//router.discordapp.net",
             //   REMOTE_AUTH_ENDPOINT: "wss://remote-auth-gateway.discord.gg",
             RTC_LATENCY_ENDPOINT: `//${LOCAL_HOST}/api/_adapter/rtc-latency`,
-            INVITE_HOST: "fluxer.gg",
-            GUILD_TEMPLATE_HOST: "fluxer.new",
-            GIFT_CODE_HOST: "fluxer.gift",
+            INVITE_HOST: fluxer.inviteHost,
+            GUILD_TEMPLATE_HOST: fluxer.guildTemplateHost,
+            GIFT_CODE_HOST: fluxer.giftHost,
             ACTIVITY_APPLICATION_HOST: "discordsays.com",
             //   MIGRATION_SOURCE_ORIGIN: "https://discordapp.com",
             //   MIGRATION_DESTINATION_ORIGIN: "https://discord.com",
             //   STRIPE_KEY: "pk_live_CUQtlpQUF0vufWpnpUmQvcdi",
             //   ADYEN_KEY: "live_E3OQ33V6GVGTXOVQZEAFQJ6DJIDVG6SY",
             //   BRAINTREE_KEY: "production_ktzp8hfp_49pp2rp4phym7387",
-            WEBAUTHN_ORIGIN: "fluxer.app"
+            WEBAUTHN_ORIGIN: fluxer.primaryDomain
         };
 
         this.cachedHtml = eta.renderString(template, {

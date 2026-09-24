@@ -1,22 +1,15 @@
 import Router from "@koa/router";
 import Koa from "koa";
 import { LOCAL_HOST } from "./constants.ts";
+import { fluxerConfig } from "./fluxerConfig.ts";
 import { proxyToUrl } from "./proxy.ts";
 
-export const FLUXER_CDN_BASE = "https://fluxerusercontent.com";
-const FLUXER_STATIC_BASE = "https://fluxerstatic.com";
-const LOCAL_CDN_BASE = `https://${LOCAL_HOST}`;
+const { cdnBase: FLUXER_CDN_BASE, staticBase: FLUXER_STATIC_BASE } = fluxerConfig;
 
-function escapeRegExp(value: string) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+const LOCAL_CDN_HOST_PATTERN = new RegExp(`https?://${LOCAL_HOST}`, "gi");
 
 export function rewriteLocalCdnHostsInContent(content: string): string {
-    return content.replace(new RegExp(`https?:\\/\\/${escapeRegExp(LOCAL_HOST)}`, "gi"), FLUXER_CDN_BASE);
-}
-
-export function rewriteFluxerCdnHostsToLocal(content: string): string {
-    return content.replace(new RegExp(escapeRegExp(FLUXER_CDN_BASE), "gi"), LOCAL_CDN_BASE);
+    return content.replace(LOCAL_CDN_HOST_PATTERN, FLUXER_CDN_BASE);
 }
 
 type CdnRoute = {
@@ -28,9 +21,9 @@ type CdnRoute = {
 const passthroughPath = (ctx: Koa.Context) => ctx.path;
 const remapDiscoverySplashPath = (ctx: Koa.Context) =>
     ctx.path.replace(/^\/discovery-splashes\//, "/embed-splashes/").replace(/\.[^/.]+$/, ".webp");
+const remapChannelIconPath = (ctx: Koa.Context) => ctx.path.replace(/^\/channel-icons\//, "/icons/");
 
 const CDN_ROUTES: CdnRoute[] = [
-    { path: "/external/*assetPath" },
     { path: "/attachments-quick-links/*assetPath" },
     { path: "/app-assets/:applicationId/achievements/:achievementId/icons/:iconAsset" },
     { path: "/app-assets/:applicationId/store/:assetId" },
@@ -41,6 +34,7 @@ const CDN_ROUTES: CdnRoute[] = [
     { path: "/ephemeral-attachments/:applicationId/:attachmentId/:attachmentFilename" },
     { path: "/avatar-decoration-presets/:avatarDecorationAsset" },
     { path: "/channels/:channelId/icons/:channelIcon" },
+    { path: "/channel-icons/:channelId/:channelIcon", buildUpstreamPath: remapChannelIconPath },
     { path: "/clan-badges/:guildId/:badgeHash" },
     { path: "/clan-banners/:guildId/:bannerHash" },
     { path: "/emojis/:emojiId" },
@@ -82,8 +76,6 @@ export function isLocalCdnAssetPath(path: string) {
 export const cdnRouter = new Router();
 
 async function proxyToFluxerCdn(ctx: Koa.Context, route: CdnRoute) {
-    // Most Fluxer CDN paths are direct passthroughs. Route-specific steering can
-    // be added here later by overriding buildUpstreamPath/upstreamBaseUrl.
     const targetPath = route.buildUpstreamPath?.(ctx) ?? passthroughPath(ctx);
     const targetUrl = `${route.upstreamBaseUrl ?? FLUXER_CDN_BASE}${targetPath}${ctx.search}`;
     await proxyToUrl(ctx, targetUrl);

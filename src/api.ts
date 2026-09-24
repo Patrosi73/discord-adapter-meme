@@ -191,12 +191,18 @@ apiRouter.get("/channels/:channelId/messages", async ctx => {
         ctx.body = translated.body;
     }
 });
+// this is to avoid the effect of sending the added `//` done by fluxerConfig.ts
+// if the base invite url is more than a hostname, which breaks the discord client
+// as it'll start generating invites like `https:////<host>/invite/abc123`
+function collapseExtraSchemeSlashes(content: string): string {
+    return content.replace(/(https?:)\/\/(?=\/\/)/g, "$1");
+}
 
 async function handleMessageWrite(ctx: Koa.Context) {
     const requestBody = await readJSONBody<Record<string, any>>(ctx);
 
     if (requestBody && typeof requestBody.content === "string") {
-        requestBody.content = rewriteLocalCdnHostsInContent(requestBody.content);
+        requestBody.content = collapseExtraSchemeSlashes(rewriteLocalCdnHostsInContent(requestBody.content));
     }
 
     const { status, headers, body } = await proxyToFluxerJSON(ctx, undefined, {

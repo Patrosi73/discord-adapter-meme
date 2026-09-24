@@ -1,10 +1,12 @@
 import Koa from "koa";
 import { Readable } from "node:stream";
+import { fluxerConfig } from "./fluxerConfig.ts";
 
-const FLUXER_API_BASE = "https://web.fluxer.app/api/v1";
+const { apiBase: FLUXER_API_BASE, origin: FLUXER_ORIGIN } = fluxerConfig;
 
 const SKIP_HEADERS = [
   "content-encoding",
+  "content-length",
   "transfer-encoding",
   "connection",
   "keep-alive",
@@ -43,7 +45,7 @@ function withFluxerOrigin(
   return {
     ...overrideFetchOptions,
     headers: {
-      Origin: "https://web.fluxer.app",
+      Origin: FLUXER_ORIGIN,
       ...("headers" in overrideFetchOptions
         ? overrideFetchOptions.headers
         : {}),
