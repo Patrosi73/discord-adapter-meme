@@ -26,16 +26,8 @@ function bareHost(url: string): string {
     return url.replace(/^[a-z]+:\/\//i, "");
 }
 
-// the discord client insists that invite and template hosts start with `//`
-// so we add them here... which will then fall apart
-// if the invite url is more than a hostname lol (see api.ts for our workaround)
-function toInviteMatcher(url: string): string {
-    const host = bareHost(url);
-    return host.includes("/") ? `//${host}` : host;
-}
-
 const { api_client: apiClient } = endpoints;
-const inviteHost = toInviteMatcher(endpoints.invite);
+const inviteHost = bareHost(endpoints.invite);
 
 export const fluxerConfig = {
     apiBase: apiClient.endsWith("/v1") ? apiClient : `${apiClient}/v1`,
@@ -46,7 +38,7 @@ export const fluxerConfig = {
     releaseChannel: process.env.FLUXER_RELEASE_CHANNEL === "stable" ? "stable" : "canary",
     primaryDomain: new URL(endpoints.marketing).host,
     inviteHost,
-    guildTemplateHost: inviteHost === "fluxer.gg" ? "fluxer.new" : toInviteMatcher(`${endpoints.webapp}/template`),
+    guildTemplateHost: inviteHost === "fluxer.gg" ? "fluxer.new" : bareHost(`${endpoints.webapp}/template`),
     giftHost: bareHost(endpoints.gift),
     marketingHost: `//${bareHost(endpoints.marketing)}`
 };

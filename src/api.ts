@@ -2,7 +2,7 @@ import Router from "@koa/router";
 import Koa from "koa";
 import { buildFluxerPathWithQuery, proxyToFluxer, proxyToFluxerJSON, setHeaders } from "./proxy.ts";
 import { LOCAL_WEBSOCKET_HOST } from "./constants.ts";
-import { rewriteLocalCdnHostsInContent } from "./cdn.ts";
+import { rewriteLocalHostsInContent } from "./cdn.ts";
 import {
     transformMessageF2D,
     transformProfileF2D,
@@ -191,18 +191,11 @@ apiRouter.get("/channels/:channelId/messages", async ctx => {
         ctx.body = translated.body;
     }
 });
-// this is to avoid the effect of sending the added `//` done by fluxerConfig.ts
-// if the base invite url is more than a hostname, which breaks the discord client
-// as it'll start generating invites like `https:////<host>/invite/abc123`
-function collapseExtraSchemeSlashes(content: string): string {
-    return content.replace(/(https?:)\/\/(?=\/\/)/g, "$1");
-}
-
 async function handleMessageWrite(ctx: Koa.Context) {
     const requestBody = await readJSONBody<Record<string, any>>(ctx);
 
     if (requestBody && typeof requestBody.content === "string") {
-        requestBody.content = collapseExtraSchemeSlashes(rewriteLocalCdnHostsInContent(requestBody.content));
+        requestBody.content = rewriteLocalHostsInContent(requestBody.content);
     }
 
     const { status, headers, body } = await proxyToFluxerJSON(ctx, undefined, {

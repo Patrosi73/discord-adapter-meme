@@ -1,27 +1,19 @@
 import Router from "@koa/router";
-import Koa from "koa";
 import { LOCAL_HOST } from "./constants.ts";
 import { fluxerConfig } from "./fluxerConfig.ts";
 import { proxyToUrl } from "./proxy.ts";
 
 const { cdnBase: FLUXER_CDN_BASE, staticBase: FLUXER_STATIC_BASE } = fluxerConfig;
 
-const LOCAL_CDN_HOST_PATTERN = new RegExp(`https?://${LOCAL_HOST}`, "gi");
-
-export function rewriteLocalCdnHostsInContent(content: string): string {
-    return content.replace(LOCAL_CDN_HOST_PATTERN, FLUXER_CDN_BASE);
-}
-
 type CdnRoute = {
     path: string;
     upstreamBaseUrl?: string;
-    buildUpstreamPath?: (ctx: Koa.Context) => string;
+    buildUpstreamPath?: (path: string) => string;
 };
 
-const passthroughPath = (ctx: Koa.Context) => ctx.path;
-const remapDiscoverySplashPath = (ctx: Koa.Context) =>
-    ctx.path.replace(/^\/discovery-splashes\//, "/embed-splashes/").replace(/\.[^/.]+$/, ".webp");
-const remapChannelIconPath = (ctx: Koa.Context) => ctx.path.replace(/^\/channel-icons\//, "/icons/");
+const remapDiscoverySplashPath = (path: string) =>
+    path.replace(/^\/discovery-splashes\//, "/embed-splashes/").replace(/\.[^/.]+$/, ".webp");
+const remapChannelIconPath = (path: string) => path.replace(/^\/channel-icons\//, "/icons/");
 
 const CDN_ROUTES: CdnRoute[] = [
     { path: "/attachments-quick-links/*assetPath" },
@@ -75,14 +67,21 @@ export function isLocalCdnAssetPath(path: string) {
 
 export const cdnRouter = new Router();
 
-async function proxyToFluxerCdn(ctx: Koa.Context, route: CdnRoute) {
-    const targetPath = route.buildUpstreamPath?.(ctx) ?? passthroughPath(ctx);
-    const targetUrl = `${route.upstreamBaseUrl ?? FLUXER_CDN_BASE}${targetPath}${ctx.search}`;
-    await proxyToUrl(ctx, targetUrl);
+function upstreamUrl(route: CdnRoute, path: string) {
+    return `${route.upstreamBaseUrl ?? FLUXER_CDN_BASE}${route.buildUpstreamPath?.(path) ?? path}`;
 }
 
-for (const route of CDN_ROUTES) {
-    cdnRouter.all(route.path, async ctx => {
-        await proxyToFluxerCdn(ctx, route);
+CDN_ROUTES.forEach((route, index) => {
+    cdnRouter.all(String(index), route.path, async ctx => {
+        await proxyToUrl(ctx, `${upstreamUrl(route, ctx.path)}${ctx.search}`);
+    });
+});
+
+const LOCAL_URL_PATTERN = new RegExp(`https?://${LOCAL_HOST}(/[^\\s?#<>()\\[\\]"'\`]*)?`, "gi");
+
+export function rewriteLocalHostsInContent(content: string): string {
+    return content.replace(LOCAL_URL_PATTERN, (_, path: string = "") => {
+        const name = cdnRouter.match(path, "GET").pathAndMethod[0]?.name;
+        return name ? upstreamUrl(CDN_ROUTES[Number(name)], path) : `${fluxerConfig.origin}${path}`;
     });
 }
